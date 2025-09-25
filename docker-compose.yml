@@ -6,7 +6,14 @@ services:
     container_name: api-medicos
     ports:
       - "6969:6969"
-  
     volumes:
-      - .:/app 
+      - .:/app  # Código Python
+      - ./CERTIFICADO:/www/wwwroot/medicos/CERTIFICADO
+      - ./RECEITAS:/www/wwwroot/medicos/receitas
+      - ./EXAMES:/www/wwwroot/medicos/exames
+      - ./DECLARACOES:/www/wwwroot/medicos/declaracoes
+      - ./ATESTADOS:/www/wwwroot/medicos/atestados
+      - ./ASSINATURAS:/www/wwwroot/medicos/assinatura
+      - ./TEMPLATES:/www/wwwroot/medicos/templates
+      - ./PEDIDOS_EXAMES:/www/wwwroot/medicos/pedidos_exames
     restart: unless-stopped
