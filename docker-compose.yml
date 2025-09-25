@@ -1,10 +1,11 @@
 version: "3.9"
 services:
-  api:
+  api-medicos:
     build: .
     container_name: api-medicos
-    ports:
-      - "6969:6969"
+    restart: unless-stopped
+    expose:
+      - "6969"
     volumes:
       - .:/app
       - ./CERTIFICADO:/www/wwwroot/medicos/CERTIFICADO
@@ -17,17 +18,15 @@ services:
       - ./papelA4:/www/wwwroot/medicos/papelA4
       - ./papelA5:/www/wwwroot/medicos/papelA5
       - ./assinaturas:/www/wwwroot/medicos/assinaturas
-
-    restart: unless-stopped
-  nginx:
+      
+  nginx-medicos:
     image: nginx:latest
-    container_name: nginx-api-medicos
+    container_name: nginx-medicos
     restart: always
     ports:
-      - "80:80"
-      - "443:443"
+      - "2424:2424"
     volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx-medicos/default.conf:/etc/nginx/conf.d/default.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
-      - app
+      - api-medicos
