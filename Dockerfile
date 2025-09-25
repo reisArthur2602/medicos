@@ -4,10 +4,10 @@ FROM python:3.12-slim
 # Diretório de trabalho
 WORKDIR /app
 
-# Instalar dependências do sistema (Wine + Java 21) e utilitários
+# Instalar dependências do sistema (OpenJDK 21 e utilitários)
 RUN apt-get update && apt-get install -y \
-    wine \
-    openjdk-21-jre-headless \
+    openjdk-21-jdk \
+    poppler-utils \
     curl \
     unzip \
     && rm -rf /var/lib/apt/lists/*
@@ -26,15 +26,11 @@ RUN pip install --upgrade pip setuptools wheel
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar instalador Windows (opcional, se precisar do JSignPdf)
-COPY JSignPdf_setup_2.3.0.exe /app/
-RUN wine /app/JSignPdf_setup_2.3.0.exe /silent || true
-
-# Copiar código da aplicação
+# Copiar código da aplicação e arquivos .jar
 COPY . .
 
 # Expor porta do app
-EXPOSE 3000
+EXPOSE 6969
 
 # Comando para rodar a aplicação
 CMD ["python", "app.py"]

@@ -5,7 +5,7 @@ services:
     build: .
     container_name: api-medicos
     ports:
-      - "3000:3000"
+      - "6969:6969"
   
     volumes:
       - .:/app 
