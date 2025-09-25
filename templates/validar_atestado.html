@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Validação de Atestado Médico</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f6f8fa; }
+        .box { background: #fff; border-radius: 8px; max-width: 600px; margin: 30px auto; box-shadow: 0 2px 8px #ccc; padding: 24px; }
+        .green { color: #249824; font-weight: bold; }
+        .red { color: #b61d1d; font-weight: bold; }
+        img { border: 1px solid #ddd; margin-top: 6px; }
+        .assinatura { margin: 18px 0 0 0; }
+        .titulo { margin-bottom: 14px; }
+        .dados { margin-bottom: 12px; }
+        .texto-atestado { background: #f8f8f8; border-radius: 4px; padding: 10px; font-size: 15px; }
+        .pdf-block { margin-top: 30px; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h2 class="titulo">Validação de Atestado Médico</h2>
+        <p>
+            {% if status == 1 %}
+                <span class="green">Atestado VÁLIDO</span>
+            {% else %}
+                <span class="red">Atestado INVÁLIDO</span>
+            {% endif %}
+        </p>
+
+        <div class="dados">
+            <p>
+                <strong>Médico:</strong> {{ nome_medico }}
+                {% if conselho_label %}
+                    | <strong>{{ conselho_label }}</strong>
+                {% elif crm %}
+                    <!-- Fallback caso o backend antigo não envie conselho_label -->
+                    | <strong>CRM: {{ crm }}</strong>
+                {% endif %}
+            </p>
+            <p><strong>Paciente:</strong> {{ nome_paciente }} | <strong>CPF:</strong> {{ cpf_paciente }}</p>
+            <p><strong>Emitido em:</strong> {{ data_emissao }}</p>
+            <p><strong>Dias de afastamento:</strong> {{ dias_afastamento }}</p>
+        </div>
+
+        <p class="texto-atestado">
+            {{ texto.replace('\n', '<br>')|safe }}
+        </p>
+
+        <div class="assinatura">
+            <strong>Assinatura do médico:</strong><br>
+            {% if assinatura_url %}
+                <img src="{{ assinatura_url }}" alt="Assinatura do médico" style="max-width:180px;">
+            {% else %}
+                <span style="color: #888;">Assinatura não disponível</span>
+            {% endif %}
+        </div>
+
+        <div class="pdf-block">
+            <strong>PDF do atestado:</strong><br>
+            {% if pdf_nome %}
+                <a href="{{ url_for('atestado.servir_atestado', nome_arquivo=pdf_nome) }}"
+                   target="_blank" style="margin-right:20px;">Baixar PDF</a>
+                <iframe src="{{ url_for('atestado.servir_atestado', nome_arquivo=pdf_nome) }}"
+                        width="100%" height="380px" style="border:1px solid #ccc;margin-top:10px;"></iframe>
+            {% else %}
+                <span style="color: #888;">PDF não disponível</span>
+            {% endif %}
+        </div>
+
+        <p style="font-size:13px; color:#444; margin-top: 20px;">
+            Assinatura digital verificada eletronicamente.<br>
+            Documento válido conforme MP 2.200-2/2001 ICP-Brasil.
+        </p>
+    </div>
+</body>
+</html>

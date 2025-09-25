@@ -1,0 +1,6 @@
+signers:
+  medico:
+    key:
+      pfx: "CERTIFICADO/CDR COMERCIO E SERVICOS HOSPITALARES LTDA_11913681000103.pfx"
+      passphrase: senha.txt
+    cert: null  # Deixe como null se estiver tudo no PFX mesmo
