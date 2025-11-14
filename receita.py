@@ -138,7 +138,28 @@ def desenhar_fundo_papel(pdf, papel_timbrado_path, largura, altura):
         print(f"Erro ao processar fundo do papel timbrado: {e}")
 
 # ------------------------------------------------------------
-#  Texto: preserva ENTERs, linhas em branco e faz quebra por largura
+# Layout dinâmico A4/A5
+# ------------------------------------------------------------
+def get_layout_params(tamanho_papel, largura, altura):
+    is_a4 = (tamanho_papel == 'A4')
+    return {
+        "margem_x": 50 if is_a4 else 25,
+        "title_font": 14 if is_a4 else 13,
+        "body_font": 11 if is_a4 else 10,
+        "small_font": 10 if is_a4 else 9,
+        "gap_line": 18 if is_a4 else 16,
+        "leading": 15 if is_a4 else 13,
+        "presc_label_gap": 18 if is_a4 else 16,
+        "via1_box_height": 200 if is_a4 else 170,
+        "via2_presc_lines": 7 if is_a4 else 5,
+        "via2_presc_gap": 16 if is_a4 else 14,
+        "via2_box_height": 180 if is_a4 else 150,
+        "assin_largura": 320 if is_a4 else 260,
+        "assin_y_min": 90 if is_a4 else 80
+    }
+
+# ------------------------------------------------------------
+# Texto: preserva ENTERs, linhas em branco e faz quebra por largura
 # ------------------------------------------------------------
 def desenhar_texto_multilinha(pdf, texto, x, y, largura_caixa,
                               fontname="Helvetica", fontsize=11, leading=15):
@@ -211,7 +232,6 @@ def resolver_papel_receita(medico_id: int) -> str:
     try:
         conn = _db()
         cur = conn.cursor()
-        # 1) preferencias_papel_medico
         if _table_exists(cur, "preferencias_papel_medico"):
             try:
                 cur.execute("""
@@ -228,7 +248,6 @@ def resolver_papel_receita(medico_id: int) -> str:
                     return v
             except Exception:
                 pass
-        # 2) clinica_config
         if _table_exists(cur, "clinica_config"):
             for k in ("DEFAULT_PAPER_RECEITA", "PAPER_RECEITA", "paper_receita"):
                 try:
@@ -286,11 +305,12 @@ def gerar_receita():
     timbrados = obter_timbrados(medico_id)
     conselho_label = montar_conselho_label(medico_id, crm_medico)
 
-    # Papel decidido no backend
     tamanho_papel = resolver_papel_receita(medico_id)
     pagesize = A4 if tamanho_papel == 'A4' else A5
     largura, altura = pagesize
     papel_timbrado_path = timbrados.get(tamanho_papel)
+
+    LP = get_layout_params(tamanho_papel, largura, altura)
 
     # Dados do paciente / conteúdo
     nome_paciente = _clean(data.get('nome_paciente') or 'Paciente')
@@ -325,7 +345,6 @@ def gerar_receita():
     except Exception as e:
         return {'erro': f'Falha ao salvar no banco: {e}'}, 500
 
-    # Arquivos temporários
     import uuid
     nome_arquivo = f"receita_{uuid.uuid4()}.pdf"
     caminho_arquivo = os.path.join(PASTA_RECEITAS, nome_arquivo)
@@ -337,75 +356,69 @@ def gerar_receita():
         buffer = io.BytesIO()
         pdf = canvas.Canvas(buffer, pagesize=pagesize)
 
-        # fundo (se existir)
+        # fundo
         desenhar_fundo_papel(pdf, papel_timbrado_path, largura, altura)
 
-        # helpers visuais (apenas para VIA 2 layout)
+        # helpers visuais VIA 2
         def _linha(pdf_canvas, x, y, w, lw=0.8):
             pdf_canvas.setLineWidth(lw)
             pdf_canvas.line(x, y, x + w, y)
 
         def _rotulo_e_linha(pdf_canvas, x, y, texto, w, dx=70, lh=16):
-            pdf_canvas.setFont("Helvetica", 10)
+            pdf_canvas.setFont("Helvetica", LP["small_font"])
             pdf_canvas.drawString(x, y, texto)
             _linha(pdf_canvas, x + dx, y - 2, w - dx)
             return y - lh
 
-        # ----- Layout: cabeçalho -----
-        def compute_header_layout():
-            margem_x = 50 if tamanho_papel == 'A4' else 25
+        # ----- header -----
+        def draw_header(pdf_canvas, via_label=None):
+            margem_x = LP["margem_x"]
+            pdf_canvas.setFont("Helvetica-Bold", LP["title_font"])
+            titulo_base = "RECEITUÁRIO DE CONTROLE ESPECIAL" if receita_controlada else "RECEITA MÉDICA"
+            titulo = titulo_base if not via_label else f"{titulo_base} ({via_label})"
+            pdf_canvas.drawString(margem_x, altura - 60, titulo)
+
             top_y = altura - 90
             lines = [("Paciente", f"Paciente: {nome_paciente}")]
             if cpf_paciente:
                 lines.append(("CPF", f"CPF: {cpf_paciente}"))
             if nasc_fmt:
                 lines.append(("Nascimento", f"Data de nascimento: {nasc_fmt}"))
-            line_gap = 18
-            end_y = top_y - line_gap * len(lines) - 24
-            return margem_x, top_y, lines, end_y, line_gap
 
-        def draw_header(pdf_canvas, via_label=None):
-            margem_x = 50 if tamanho_papel == 'A4' else 25
-            pdf_canvas.setFont("Helvetica-Bold", 14)
-            titulo_base = "RECEITUÁRIO DE CONTROLE ESPECIAL" if receita_controlada else "RECEITA MÉDICA"
-            titulo = titulo_base if not via_label else f"{titulo_base} ({via_label})"
-            pdf_canvas.drawString(margem_x, altura - 60, titulo)
-
-            margem_x, top_y, lines, end_y, line_gap = compute_header_layout()
-            pdf_canvas.setFont("Helvetica", 11)
+            pdf_canvas.setFont("Helvetica", LP["body_font"])
             yy = top_y
             for _, text in lines:
                 pdf_canvas.drawString(margem_x, yy, text)
-                yy -= line_gap
-            return end_y  # onde o corpo começa
+                yy -= LP["gap_line"]
+            end_y = yy - 24
+            return end_y
 
-        # ----- Quadro VIA 1 (controlada) -----
+        # ----- quadro VIA 1 -----
         def draw_quadro_receita_controlada(pdf_canvas, x, y, largura_total):
-            # quadro com comprador/fornecedor/farmacêutico
-            altura_box = 200 if tamanho_papel == "A4" else 170
+            altura_box = LP["via1_box_height"]
             pdf_canvas.setLineWidth(1)
             pdf_canvas.rect(x, y - altura_box, largura_total, altura_box)
 
-            pdf_canvas.setFont("Helvetica-Bold", 11)
+            pdf_canvas.setFont("Helvetica-Bold", LP["body_font"])
             pdf_canvas.drawString(x + 10, y - 20, "IDENTIFICAÇÃO DO COMPRADOR")
-            pdf_canvas.setFont("Helvetica", 10)
+            pdf_canvas.setFont("Helvetica", LP["small_font"])
             pdf_canvas.drawString(x + 20, y - 40, "Nome:")
             pdf_canvas.drawString(x + 20, y - 60, "Identidade:")
             pdf_canvas.drawString(x + 20, y - 80, "Endereço:")
             pdf_canvas.drawString(x + 20, y - 100, "Cidade:")
             pdf_canvas.drawString(x + 20, y - 120, "Telefone:")
 
-            pdf_canvas.setFont("Helvetica-Bold", 11)
+            pdf_canvas.setFont("Helvetica-Bold", LP["body_font"])
             pdf_canvas.drawString(x + 10, y - 140, "IDENTIFICAÇÃO DO FORNECEDOR (FARMÁCIA)")
-            pdf_canvas.setFont("Helvetica", 10)
+            pdf_canvas.setFont("Helvetica", LP["small_font"])
             pdf_canvas.drawString(x + 20, y - 160, "Nome:")
             pdf_canvas.drawString(x + 200, y - 160, "Cidade:")
             pdf_canvas.drawString(x + 20, y - 180, "CNPJ:")
             pdf_canvas.drawString(x + 200, y - 180, "Telefone:")
 
-            pdf_canvas.setFont("Helvetica-Bold", 11)
+            pdf_canvas.setFont("Helvetica-Bold", LP["body_font"])
             pdf_canvas.drawString(x + largura_total - 220, y - 20, "FARMACÊUTICO RESPONSÁVEL")
-            pdf_canvas.setFont("Helvetica", 10)
+            pdf_canvas.setFont("Helvetica", LP["small_font"])
             pdf_canvas.drawString(x + largura_total - 210, y - 40, "Nome:")
             pdf_canvas.drawString(x + largura_total - 210, y - 60, "CRF:")
             pdf_canvas.drawString(x + largura_total - 210, y - 80, "Assinatura:")
@@ -413,108 +426,100 @@ def gerar_receita():
 
             return y - altura_box - 20
 
-        # ----- Corpo padrão (usa prescrição e data) -----
+        # ----- body padrão (VIA 1) -----
         def draw_body(pdf_canvas, start_y, via_label=None):
-            margem_x = 50 if tamanho_papel == 'A4' else 25
+            margem_x = LP["margem_x"]
             largura_texto = largura - (2 * margem_x)
             y = start_y
 
-            pdf_canvas.setFont("Helvetica-Bold", 11)
+            pdf_canvas.setFont("Helvetica-Bold", LP["body_font"])
             pdf_canvas.drawString(margem_x, y, "Prescrição:")
-            y -= 18
+            y -= LP["presc_label_gap"]
 
-            pdf_canvas.setFont("Helvetica", 11)
+            pdf_canvas.setFont("Helvetica", LP["body_font"])
             y = desenhar_texto_multilinha(pdf_canvas, receita_texto, margem_x, y, largura_texto,
-                                          fontname="Helvetica", fontsize=11, leading=15)
+                                          fontname="Helvetica", fontsize=LP["body_font"], leading=LP["leading"])
             y -= 10
 
-            pdf_canvas.setFont("Helvetica", 10)
+            pdf_canvas.setFont("Helvetica", LP["small_font"])
             pdf_canvas.drawString(margem_x, y, f"Data de emissão: {data_emissao}")
             y -= 25
 
-            # Se for VIA 1 controlada → desenha quadro antes da assinatura
             if receita_controlada and (via_label == "Via: 1"):
                 largura_quadro = largura - (2 * margem_x)
                 y = draw_quadro_receita_controlada(pdf_canvas, margem_x, y, largura_quadro)
                 y -= 10
 
-            # Linha de assinatura do médico (ajusta à posição atual)
             pdf_canvas.setLineWidth(1)
             cx = largura / 2.0
-            linha_w = 320 if tamanho_papel == 'A4' else 260
-            y_linha = max(100, y - 40)
+            linha_w = LP["assin_largura"]
+            y_linha = max(LP["assin_y_min"], y - 40)
             pdf_canvas.line(cx - linha_w / 2, y_linha, cx + linha_w / 2, y_linha)
-            pdf_canvas.setFont("Helvetica", 10)
+            pdf_canvas.setFont("Helvetica", LP["small_font"])
             pdf_canvas.drawCentredString(cx, y_linha - 12, "Assinatura e carimbo do médico")
 
             return y_linha - 24
 
-        # ----- VIA 2 no modelo da foto -----
+        # ----- body VIA 2 (modelo da foto) -----
         def draw_body_controlada_via2(pdf_canvas, start_y):
-            margem_x = 50 if tamanho_papel == 'A4' else 25
+            margem_x = LP["margem_x"]
             largura_texto = largura - (2 * margem_x)
             y = start_y
 
-            # Topo: Paciente / Endereço / Prescrição (com linhas)
-            pdf_canvas.setFont("Helvetica", 10)
-            y = _rotulo_e_linha(pdf_canvas, margem_x, y, "Paciente:", largura_texto, dx=70, lh=18)
-            y = _rotulo_e_linha(pdf_canvas, margem_x, y, "Endereço:", largura_texto, dx=70, lh=18)
+            pdf_canvas.setFont("Helvetica", LP["small_font"])
+            y = _rotulo_e_linha(pdf_canvas, margem_x, y, "Paciente:", largura_texto, dx=70, lh=18 if tamanho_papel == 'A4' else 16)
+            y = _rotulo_e_linha(pdf_canvas, margem_x, y, "Endereço:", largura_texto, dx=70, lh=18 if tamanho_papel == 'A4' else 16)
 
-            pdf_canvas.setFont("Helvetica", 10)
+            pdf_canvas.setFont("Helvetica", LP["small_font"])
             pdf_canvas.drawString(margem_x, y, "Prescrição:")
-            y -= 14
-            linhas_presc = 7 if tamanho_papel == 'A4' else 5
-            esp = 16
-            for _ in range(linhas_presc):
+            y -= 12
+            for _ in range(LP["via2_presc_lines"]):
                 _linha(pdf_canvas, margem_x, y, largura_texto, lw=0.6)
-                y -= esp
+                y -= LP["via2_presc_gap"]
 
-            # Data e assinatura do médico (direita)
-            pdf_canvas.setFont("Helvetica", 10)
+            pdf_canvas.setFont("Helvetica", LP["small_font"])
             pdf_canvas.drawString(margem_x, y, f"Data: {data_emissao}")
             cxr = largura - margem_x
-            _linha(pdf_canvas, cxr - 250, y - 2, 240)
+            _linha(pdf_canvas, cxr - (240 if tamanho_papel == 'A4' else 210), y - 2, 230 if tamanho_papel == 'A4' else 200)
             pdf_canvas.drawRightString(cxr, y - 16, "Assinatura do Médico / CRM")
-            y -= 28
+            y -= 26
 
-            # Duas colunas com caixas
             col_gap = 18
             col_w = (largura_texto - col_gap) / 2.0
             left_x = margem_x
             right_x = margem_x + col_w + col_gap
             top_y = y
 
-            box_h = 180 if tamanho_papel == 'A4' else 150
+            box_h = LP["via2_box_height"]
             pdf_canvas.setLineWidth(1)
             pdf_canvas.rect(left_x, top_y - box_h, col_w, box_h)
             pdf_canvas.rect(right_x, top_y - box_h, col_w, box_h)
 
-            # Esquerda: Identificação do Comprador
             yy = top_y - 18
-            pdf_canvas.setFont("Helvetica-Bold", 11)
+            pdf_canvas.setFont("Helvetica-Bold", LP["body_font"])
             pdf_canvas.drawString(left_x + 10, yy, "IDENTIFICAÇÃO DO COMPRADOR")
             yy -= 18
-            pdf_canvas.setFont("Helvetica", 10)
+            pdf_canvas.setFont("Helvetica", LP["small_font"])
             yy = _rotulo_e_linha(pdf_canvas, left_x + 10, yy, "Nome:", col_w - 20, dx=50)
             pdf_canvas.drawString(left_x + 10, yy, "Identidade:")
-            _linha(pdf_canvas, left_x + 10 + 60, yy - 2, 120)
-            pdf_canvas.drawString(left_x + 10 + 60 + 130, yy, "Órg.Em.:")
-            _linha(pdf_canvas, left_x + 10 + 60 + 130 + 55, yy - 2, col_w - (10 + 60 + 130 + 55 + 10))
+            _linha(pdf_canvas, left_x + 10 + 60, yy - 2, 110 if tamanho_papel == 'A4' else 95)
+            pdf_canvas.drawString(left_x + 10 + 60 + (120 if tamanho_papel == 'A4' else 105), yy, "Órg.Em.:")
+            _linha(pdf_canvas, left_x + 10 + 60 + (120 if tamanho_papel == 'A4' else 105) + 55, yy - 2,
+                   col_w - (10 + 60 + (120 if tamanho_papel == 'A4' else 105) + 55 + 10))
             yy -= 18
             yy = _rotulo_e_linha(pdf_canvas, left_x + 10, yy, "Endereço:", col_w - 20, dx=60)
             pdf_canvas.drawString(left_x + 10, yy, "Cidade:")
-            _linha(pdf_canvas, left_x + 10 + 45, yy - 2, 150)
-            pdf_canvas.drawString(left_x + 10 + 45 + 160, yy, "UF:")
-            _linha(pdf_canvas, left_x + 10 + 45 + 160 + 18, yy - 2, 30)
+            _linha(pdf_canvas, left_x + 10 + 45, yy - 2, 140 if tamanho_papel == 'A4' else 120)
+            pdf_canvas.drawString(left_x + 10 + 45 + (150 if tamanho_papel == 'A4' else 130), yy, "UF:")
+            _linha(pdf_canvas, left_x + 10 + 45 + (150 if tamanho_papel == 'A4' else 130) + 18, yy - 2, 28)
             yy -= 18
             yy = _rotulo_e_linha(pdf_canvas, left_x + 10, yy, "Telefone:", col_w - 20, dx=60)
 
-            # Direita: Fornecedor + Assinatura do Farmacêutico
             yy2 = top_y - 18
-            pdf_canvas.setFont("Helvetica-Bold", 11)
+            pdf_canvas.setFont("Helvetica-Bold", LP["body_font"])
             pdf_canvas.drawString(right_x + 10, yy2, "IDENTIFICAÇÃO DO FORNECEDOR")
             yy2 -= 18
-            pdf_canvas.setFont("Helvetica", 10)
+            pdf_canvas.setFont("Helvetica", LP["small_font"])
             yy2 = _rotulo_e_linha(pdf_canvas, right_x + 10, yy2, "Nome:", col_w - 20, dx=50)
             yy2 = _rotulo_e_linha(pdf_canvas, right_x + 10, yy2, "CNPJ:", col_w - 20, dx=50)
             yy2 = _rotulo_e_linha(pdf_canvas, right_x + 10, yy2, "Endereço:", col_w - 20, dx=60)
@@ -598,10 +603,8 @@ def gerar_receita():
             qr_y = linha_centro_y - qr_size // 2
             text_x = qr_x + qr_size + 14
 
-            # QR
             ov.drawImage(ImageReader(gerar_qrcode(url_validacao)), qr_x, qr_y, qr_size, qr_size, mask='auto')
 
-            # Assinatura (opcional)
             assin_path = _clean_path(assinatura_img_path)
             if assin_path and os.path.exists(assin_path) and assin_path.lower().endswith(('.png', '.jpg', '.jpeg')):
                 try:
@@ -620,7 +623,7 @@ def gerar_receita():
                         img.resize((nw, nh), Image.LANCZOS).save(tmp_ass)
                     centro_x = largura / 2.0
                     x_ass = int(centro_x - (nw / 2))
-                    y_ass = linha_centro_y + 15 + 3
+                    y_ass = linha_centro_y + 18
                     ov.drawImage(tmp_ass, x_ass, y_ass, width=nw, height=nh, mask='auto')
                     try:
                         os.remove(tmp_ass)
