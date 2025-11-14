@@ -146,15 +146,11 @@ def desenhar_texto_multilinha(pdf, texto, x, y, largura_caixa,
     - linhas em branco
     - quebra automática por largura
     """
-
     from reportlab.pdfbase.pdfmetrics import stringWidth
-
     texto = (texto or "").replace('\r\n', '\n').replace('\r', '\n')
     blocos = texto.split('\n')  # mantém ENTER
 
     for bloco in blocos:
-
-        # Linha em branco -> apenas desce
         if bloco.strip() == "":
             y -= leading
             continue
@@ -164,7 +160,6 @@ def desenhar_texto_multilinha(pdf, texto, x, y, largura_caixa,
 
         for palavra in palavras:
             teste = (atual + " " if atual else "") + palavra
-
             if stringWidth(teste, fontname, fontsize) < largura_caixa:
                 atual = teste
             else:
@@ -177,6 +172,7 @@ def desenhar_texto_multilinha(pdf, texto, x, y, largura_caixa,
             y -= leading
 
     return y
+
 
 # -------------------- dados do médico / papel / timbrado --------------------
 def obter_dados_medico_basico(medico_id: int):
@@ -281,6 +277,44 @@ def montar_conselho_label(medico_id: int, crm_fallback: str = "") -> str:
     return f"CRM {crm_fallback}" if crm_fallback else "Registro profissional"
 
 # -------------------- endpoints --------------------
+def draw_quadro_receita_controlada(pdf, x, y, largura_total):
+    """
+    Quadro da Receita Controlada – Via 1 (preenchimento pela farmácia).
+    Posição: abaixo da prescrição e da data (opção 1).
+    Retorna nova coordenada y após o quadro.
+    """
+    altura_box = 200
+    pdf.setLineWidth(1)
+    pdf.rect(x, y - altura_box, largura_total, altura_box)
+
+    # Títulos e campos
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(x + 10, y - 20, "IDENTIFICAÇÃO DO COMPRADOR")
+    pdf.setFont("Helvetica", 10)
+    pdf.drawString(x + 20, y - 40, "Nome:")
+    pdf.drawString(x + 20, y - 60, "Identidade:")
+    pdf.drawString(x + 20, y - 80, "Endereço:")
+    pdf.drawString(x + 20, y - 100, "Cidade:")
+    pdf.drawString(x + 20, y - 120, "Telefone:")
+
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(x + 10, y - 140, "IDENTIFICAÇÃO DO FORNECEDOR (FARMÁCIA)")
+    pdf.setFont("Helvetica", 10)
+    pdf.drawString(x + 20, y - 160, "Nome:")
+    pdf.drawString(x + 20, y - 180, "CNPJ:")
+    pdf.drawString(x + 200, y - 160, "Cidade:")
+    pdf.drawString(x + 200, y - 180, "Telefone:")
+
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(x + largura_total - 220, y - 20, "FARMACÊUTICO RESPONSÁVEL")
+    pdf.setFont("Helvetica", 10)
+    pdf.drawString(x + largura_total - 210, y - 40, "Nome:")
+    pdf.drawString(x + largura_total - 210, y - 60, "CRF:")
+    pdf.drawString(x + largura_total - 210, y - 80, "Assinatura:")
+    pdf.drawString(x + largura_total - 210, y - 100, "Data:")
+
+    return y - altura_box - 20
+
 @receita_bp.route('/api/gerar-receita', methods=['POST'])
 def gerar_receita():
     data = request.get_json(force=True, silent=True) or {}
@@ -369,7 +403,7 @@ def gerar_receita():
                 yy -= line_gap
             return end_y
 
-        def draw_body(pdf_canvas, start_y):
+        def draw_body(pdf_canvas, start_y, via_label=None):
             margem_x = 50 if tamanho_papel == 'A4' else 25
             largura_texto = largura - (2 * margem_x)
             y = start_y
@@ -388,6 +422,12 @@ def gerar_receita():
             pdf_canvas.setFont("Helvetica", 10)
             pdf_canvas.drawString(margem_x, y, f"Data de emissão: {data_emissao}")
 
+
+            # Quadro da receita controlada (somente Via 1)
+            if receita_controlada and (via_label == "Via: 1" or via_label == "Via: 1"):
+                largura_quadro = largura - (2 * margem_x)
+                y -= 10
+                y = draw_quadro_receita_controlada(pdf_canvas, margem_x, y, largura_quadro)
             pdf_canvas.setLineWidth(1)
             cx = largura / 2.0
             linha_w = 320 if tamanho_papel == 'A4' else 260
@@ -398,14 +438,14 @@ def gerar_receita():
 
         # via 1
         y_start = draw_header(pdf, via_label=("Via: 1" if receita_controlada else None))
-        draw_body(pdf, y_start)
+        draw_body(pdf, y_start, via_label=("Via: 1" if receita_controlada else None))
 
         # via 2
         if receita_controlada:
             pdf.showPage()
             desenhar_fundo_papel(pdf, papel_timbrado_path, largura, altura)
             y_start = draw_header(pdf, via_label="Via: 2")
-            draw_body(pdf, y_start)
+            draw_body(pdf, y_start, via_label="Via: 2")
 
         pdf.save()
         buffer.seek(0)
@@ -470,7 +510,7 @@ def gerar_receita():
                 try:
                     with Image.open(assin_path) as img:
                         if img.mode != "RGBA":
-                               img = img.convert("RGBA")
+                            img = img.convert("RGBA")
                         bbox = img.getbbox()
                         if bbox:
                             img = img.crop(bbox)
@@ -503,8 +543,8 @@ def gerar_receita():
             over_page = over_reader.pages[0]
 
             writer = PdfWriter()
-            for pg in enumerate(reader.pages):
-                page = pg[1]
+            for i, pg in enumerate(reader.pages):
+                page = pg
                 if Transformation and hasattr(page, "merge_transformed_page"):
                     page.merge_transformed_page(over_page, Transformation().scale(1,1))
                 else:
