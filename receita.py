@@ -366,7 +366,7 @@ def gerar_receita():
             pdf_canvas.setFont("Helvetica-Bold", LP["title_font"])
             titulo_base = "RECEITUÁRIO DE CONTROLE ESPECIAL" if receita_controlada else "RECEITA MÉDICA"
             titulo = titulo_base if not via_label else f"{titulo_base} ({via_label})"
-            pdf_canvas.drawString(margem_x, altura - 60, titulo)
+            pdf_canvas.drawString(margem_x, altura - 90, titulo)
 
             top_y = altura - 110
             pdf_canvas.setFont("Helvetica", LP["body_font"])
