@@ -62,7 +62,7 @@ def _clean_path(p):
 
 def fmt_cpf(cpf):
     s = ''.join(ch for ch in str(cpf or '') if ch.isdigit())
-    if len(s) == 11:
+   	if len(s) == 11:
         return f"{s[:3]}.{s[3:6]}.{s[6:9]}-{s[9:]}"
     return str(cpf or '')
 
@@ -135,23 +135,47 @@ def desenhar_fundo_papel(pdf, papel_timbrado_path, largura, altura):
     except Exception as e:
         print(f"Erro ao processar fundo do papel timbrado: {e}")
 
-def desenhar_texto_multilinha(pdf, texto, x, y, largura_caixa, fontname="Helvetica", fontsize=11, leading=14):
+# ------------------------------------------------------------
+#  🔥 FUNÇÃO NOVA — PRESERVA ENTERS, LINHAS EM BRANCO E FAZ A QUEBRA AUTOMÁTICA
+# ------------------------------------------------------------
+def desenhar_texto_multilinha(pdf, texto, x, y, largura_caixa,
+                              fontname="Helvetica", fontsize=11, leading=15):
+    """
+    Renderiza texto mantendo:
+    - quebras de linha (\n)
+    - linhas em branco
+    - quebra automática por largura
+    """
+
     from reportlab.pdfbase.pdfmetrics import stringWidth
-    linhas = []
-    for bloco in (texto or "").replace('\r\n','\n').replace('\r','\n').split('\n'):
-        palavras, atual = bloco.split(' '), ""
+
+    texto = (texto or "").replace('\r\n', '\n').replace('\r', '\n')
+    blocos = texto.split('\n')  # mantém ENTER
+
+    for bloco in blocos:
+
+        # Linha em branco -> apenas desce
+        if bloco.strip() == "":
+            y -= leading
+            continue
+
+        palavras = bloco.split(' ')
+        atual = ""
+
         for palavra in palavras:
             teste = (atual + " " if atual else "") + palavra
+
             if stringWidth(teste, fontname, fontsize) < largura_caixa:
                 atual = teste
             else:
-                if atual: linhas.append(atual)
+                pdf.drawString(x, y, atual)
+                y -= leading
                 atual = palavra
+
         if atual:
-            linhas.append(atual)
-    for linha in linhas:
-        pdf.drawString(x, y, linha)
-        y -= leading
+            pdf.drawString(x, y, atual)
+            y -= leading
+
     return y
 
 # -------------------- dados do médico / papel / timbrado --------------------
@@ -174,11 +198,6 @@ def obter_dados_medico_basico(medico_id: int):
         return (None, None, None, '', '')
 
 def obter_timbrados(medico_id: int):
-    """
-    Lê paths do timbrado nas NOVAS tabelas:
-      - papeis_timbrados (tamanho A4/A5, caminho, ativo=1)
-    Retorna dict {'A4': path|None, 'A5': path|None}
-    """
     paths = {'A4': None, 'A5': None}
     try:
         conn = _db(); cur = conn.cursor()
@@ -186,7 +205,7 @@ def obter_timbrados(medico_id: int):
             cur.execute("""
                 SELECT tamanho, caminho
                 FROM papeis_timbrados
-                WHERE medico_id=%s AND ativo=1
+               	WHERE medico_id=%s AND ativo=1
             """, (medico_id,))
             for t, c in cur.fetchall() or []:
                 tt = (t or '').upper()
@@ -198,13 +217,6 @@ def obter_timbrados(medico_id: int):
     return paths
 
 def resolver_papel_receita(medico_id: int) -> str:
-    """
-    Prioridade:
-      1) preferencias_papel_medico (doc_tipo='RECEITA')
-      2) clinica_config (DEFAULT_PAPER_RECEITA / PAPER_RECEITA / paper_receita)
-      3) .env DEFAULT_PAPER_RECEITA
-      4) 'A4'
-    """
     try:
         conn = _db(); cur = conn.cursor()
 
@@ -237,6 +249,7 @@ def resolver_papel_receita(medico_id: int) -> str:
                         return v
                 except Exception:
                     pass
+
         cur.close(); conn.close()
     except Exception:
         pass
@@ -244,18 +257,12 @@ def resolver_papel_receita(medico_id: int) -> str:
     v_env = (os.getenv("DEFAULT_PAPER_RECEITA") or "A4").strip().upper()
     return v_env if v_env in ("A4","A5") else "A4"
 
-# ---------- NOVO: rótulo do conselho a partir da tabela `conselho`
 def montar_conselho_label(medico_id: int, crm_fallback: str = "") -> str:
-    """
-    Lê `conselho` (tipo, codigo, uf) para o médico.
-    Retorna 'CRO-RJ 0000', 'CRM-SP 12345', etc.
-    Fallback: 'CRM {crm_fallback}' ou 'Registro profissional'.
-    """
     try:
         conn = _db(); cur = conn.cursor()
         cur.execute("""
             SELECT tipo, codigo, uf
-              FROM conselho
+             	FROM conselho
              WHERE medico_id=%s
           ORDER BY id DESC
              LIMIT 1
@@ -284,15 +291,13 @@ def gerar_receita():
 
     cert_path, cert_senha, assinatura_img_path, crm_medico, nome_medico = obter_dados_medico_basico(medico_id)
     timbrados = obter_timbrados(medico_id)
-    conselho_label = montar_conselho_label(medico_id, crm_medico)  # <<< usa tabela conselho
+    conselho_label = montar_conselho_label(medico_id, crm_medico)
 
-    # Papel: backend decide (não usamos tamanho do JSON)
     tamanho_papel = resolver_papel_receita(medico_id)
     pagesize = A4 if tamanho_papel == 'A4' else A5
-    largura, altura = pagesize
+   	largura, altura = pagesize
     papel_timbrado_path = timbrados.get(tamanho_papel)
 
-    # Dados do paciente / conteúdo
     nome_paciente   = _clean(data.get('nome_paciente') or 'Paciente')
     cpf_paciente    = fmt_cpf(data.get('cpf_paciente') or '')
     data_nasc_in    = _clean(data.get('data_nascimento') or '')
@@ -305,7 +310,7 @@ def gerar_receita():
     data_emissao_dt = datetime.now(TZ)
     data_emissao    = data_emissao_dt.strftime('%d/%m/%Y')
 
-    # Cria registro
+    # Inserção no banco
     try:
         conn = _db()
         paciente_id = _get_or_create_paciente(conn, nome_paciente, cpf_paciente, nasc_sql, sexo)
@@ -324,21 +329,20 @@ def gerar_receita():
     except Exception as e:
         return {'erro': f'Falha ao salvar no banco: {e}'}, 500
 
-    # Vamos gerar o PDF base SEM o bloco digital; se assinar, sobrepomos o bloco.
     import uuid
     nome_arquivo = f"receita_{uuid.uuid4()}.pdf"
     caminho_arquivo = os.path.join(PASTA_RECEITAS, nome_arquivo)
 
-    # ----- 1) PDF base -----
+    # ----- gerar PDF base -----
     base_fd, base_path = tempfile.mkstemp(suffix=".pdf"); os.close(base_fd)
     try:
         buffer = io.BytesIO()
         pdf = canvas.Canvas(buffer, pagesize=pagesize)
 
-        # fundo (se existir)
+        # fundo
         desenhar_fundo_papel(pdf, papel_timbrado_path, largura, altura)
 
-        # calcula layout do cabeçalho (nome + CPF abaixo + nascimento se houver)
+        # layout
         def compute_header_layout():
             margem_x = 50 if tamanho_papel=='A4' else 25
             top_y = altura - 90
@@ -362,12 +366,12 @@ def gerar_receita():
             yy = top_y
             for _, text in lines:
                 pdf_canvas.drawString(margem_x, yy, text)
-                yy -= line_gap
-            return end_y  # retorna onde o corpo deve começar
+               	yy -= line_gap
+           	return end_y
 
         def draw_body(pdf_canvas, start_y):
             margem_x = 50 if tamanho_papel == 'A4' else 25
-            largura_texto = largura - (2 * margem_x)
+           	largura_texto = largura - (2 * margem_x)
             y = start_y
 
             pdf_canvas.setFont("Helvetica-Bold", 11)
@@ -375,14 +379,15 @@ def gerar_receita():
             y -= 18
 
             pdf_canvas.setFont("Helvetica", 11)
-            y = desenhar_texto_multilinha(pdf_canvas, receita_texto, margem_x, y, largura_texto,
-                                          fontname="Helvetica", fontsize=11, leading=15)
+            y = desenhar_texto_multilinha(
+                pdf_canvas, receita_texto, margem_x, y, largura_texto,
+                fontname="Helvetica", fontsize=11, leading=15
+            )
             y -= 10
 
             pdf_canvas.setFont("Helvetica", 10)
             pdf_canvas.drawString(margem_x, y, f"Data de emissão: {data_emissao}")
 
-            # Linha de assinatura manual (sempre presente)
             pdf_canvas.setLineWidth(1)
             cx = largura / 2.0
             linha_w = 320 if tamanho_papel == 'A4' else 260
@@ -391,11 +396,11 @@ def gerar_receita():
             pdf_canvas.setFont("Helvetica", 10)
             pdf_canvas.drawCentredString(cx, y_linha - 12, "Assinatura e carimbo do médico")
 
-        # Via 1
+        # via 1
         y_start = draw_header(pdf, via_label=("Via: 1" if receita_controlada else None))
         draw_body(pdf, y_start)
 
-        # Via 2, se controlada
+        # via 2
         if receita_controlada:
             pdf.showPage()
             desenhar_fundo_papel(pdf, papel_timbrado_path, largura, altura)
@@ -411,7 +416,7 @@ def gerar_receita():
         except: pass
         return {'erro': f'Falha ao gerar PDF base: {e}'}, 500
 
-    # ----- 2) Assinar digitalmente (invisível) -----
+    # ----- assinatura digital -----
     assinou = False
     final_path = base_path
     has_cert_inputs = bool(cert_path and os.path.isfile(cert_path) and (cert_senha or "").strip())
@@ -443,7 +448,7 @@ def gerar_receita():
         except Exception as e:
             print("JSignPdf erro:", e)
 
-    # ----- 3) Se assinou, sobrepor BLOCO DIGITAL (QR + textos + assinatura img) -----
+    # ----- overlay bloco digital -----
     if assinou:
         try:
             base_url = PUBLIC_BASE_URL if PUBLIC_BASE_URL else request.url_root.rstrip("/")
@@ -452,23 +457,20 @@ def gerar_receita():
             overlay_buf = io.BytesIO()
             ov = canvas.Canvas(overlay_buf, pagesize=pagesize)
 
-            # Posições do bloco digital
             linha_centro_y = 120
             qr_size = 60
             qr_x = 50
             qr_y = linha_centro_y - qr_size // 2
             text_x = qr_x + qr_size + 14
 
-            # QR
             ov.drawImage(ImageReader(gerar_qrcode(url_validacao)), qr_x, qr_y, qr_size, qr_size, mask='auto')
 
-            # Assinatura (opcional)
             assin_path = _clean_path(assinatura_img_path)
             if assin_path and os.path.exists(assin_path) and assin_path.lower().endswith(('.png','.jpg','.jpeg')):
                 try:
                     with Image.open(assin_path) as img:
                         if img.mode != "RGBA":
-                            img = img.convert("RGBA")
+                           	img = img.convert("RGBA")
                         bbox = img.getbbox()
                         if bbox:
                             img = img.crop(bbox)
@@ -489,14 +491,13 @@ def gerar_receita():
                     pass
 
             ov.setFont("Helvetica-Bold", 11)
-            ov.drawString(text_x, linha_centro_y + 15, f"{nome_medico}    |    {conselho_label}")  # <<< sem 'CRM:'
+            ov.drawString(text_x, linha_centro_y + 15, f"{nome_medico}    |    {conselho_label}")
             ov.setFont("Helvetica", 9)
             ov.drawString(text_x, linha_centro_y, "Para verificar a autenticidade da receita, leia o QR code ao lado.")
             ov.drawString(text_x, linha_centro_y - 15, "Assinatura digital válida conforme MP 2.200-2/2001")
             ov.save()
             overlay_buf.seek(0)
 
-            # Merge overlay em TODAS as páginas
             reader = PdfReader(final_path)
             over_reader = PdfReader(overlay_buf)
             over_page = over_reader.pages[0]
@@ -515,7 +516,7 @@ def gerar_receita():
         except Exception as e:
             print("Overlay bloco digital falhou:", e)
 
-    # ----- 4) Grava definitivo, atualiza banco e responde -----
+    # ----- salvar arquivo definitivo -----
     with open(final_path, 'rb') as f:
         pdf_bytes_final = f.read()
     with open(caminho_arquivo, 'wb') as dst:
@@ -568,7 +569,7 @@ def validar_receita(receita_id):
             return "Receita não encontrada", 404
 
         texto, data_emissao, status, pdf_path, med_id, nome_med, crm, ass_path, nome_pac, cpf_pac = row
-        conselho_label = montar_conselho_label(int(med_id), crm)  # <<< usa tabela conselho
+        conselho_label = montar_conselho_label(int(med_id), crm)
 
         assinatura_data_uri = None
         ass_path = _clean_path(ass_path)
@@ -586,7 +587,7 @@ def validar_receita(receita_id):
             "validar_receita.html",
             status=status,
             nome_medico=nome_med,
-            conselho_label=conselho_label,   # <<< passe o label pronto
+            conselho_label=conselho_label,
             assinatura_data_uri=assinatura_data_uri,
             nome_paciente=nome_pac,
             cpf_paciente=fmt_cpf(cpf_pac),
