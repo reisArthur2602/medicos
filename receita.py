@@ -62,7 +62,7 @@ def _clean_path(p):
 
 def fmt_cpf(cpf):
     s = ''.join(ch for ch in str(cpf or '') if ch.isdigit())
-   	if len(s) == 11:
+    if len(s) == 11:
         return f"{s[:3]}.{s[3:6]}.{s[6:9]}-{s[9:]}"
     return str(cpf or '')
 
@@ -205,7 +205,7 @@ def obter_timbrados(medico_id: int):
             cur.execute("""
                 SELECT tamanho, caminho
                 FROM papeis_timbrados
-               	WHERE medico_id=%s AND ativo=1
+                   WHERE medico_id=%s AND ativo=1
             """, (medico_id,))
             for t, c in cur.fetchall() or []:
                 tt = (t or '').upper()
@@ -262,7 +262,7 @@ def montar_conselho_label(medico_id: int, crm_fallback: str = "") -> str:
         conn = _db(); cur = conn.cursor()
         cur.execute("""
             SELECT tipo, codigo, uf
-             	FROM conselho
+                 FROM conselho
              WHERE medico_id=%s
           ORDER BY id DESC
              LIMIT 1
@@ -295,7 +295,7 @@ def gerar_receita():
 
     tamanho_papel = resolver_papel_receita(medico_id)
     pagesize = A4 if tamanho_papel == 'A4' else A5
-   	largura, altura = pagesize
+    largura, altura = pagesize
     papel_timbrado_path = timbrados.get(tamanho_papel)
 
     nome_paciente   = _clean(data.get('nome_paciente') or 'Paciente')
@@ -366,12 +366,12 @@ def gerar_receita():
             yy = top_y
             for _, text in lines:
                 pdf_canvas.drawString(margem_x, yy, text)
-               	yy -= line_gap
-           	return end_y
+                yy -= line_gap
+            return end_y
 
         def draw_body(pdf_canvas, start_y):
             margem_x = 50 if tamanho_papel == 'A4' else 25
-           	largura_texto = largura - (2 * margem_x)
+            largura_texto = largura - (2 * margem_x)
             y = start_y
 
             pdf_canvas.setFont("Helvetica-Bold", 11)
@@ -470,7 +470,7 @@ def gerar_receita():
                 try:
                     with Image.open(assin_path) as img:
                         if img.mode != "RGBA":
-                           	img = img.convert("RGBA")
+                               img = img.convert("RGBA")
                         bbox = img.getbbox()
                         if bbox:
                             img = img.crop(bbox)
@@ -503,8 +503,8 @@ def gerar_receita():
             over_page = over_reader.pages[0]
 
             writer = PdfWriter()
-            for i, pg in enumerate(reader.pages):
-                page = pg
+            for pg in enumerate(reader.pages):
+                page = pg[1]
                 if Transformation and hasattr(page, "merge_transformed_page"):
                     page.merge_transformed_page(over_page, Transformation().scale(1,1))
                 else:
