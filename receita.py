@@ -368,7 +368,7 @@ def gerar_receita():
             titulo = titulo_base if not via_label else f"{titulo_base} ({via_label})"
             pdf_canvas.drawString(margem_x, altura - 60, titulo)
 
-            top_y = altura - 90
+            top_y = altura - 110
             pdf_canvas.setFont("Helvetica", LP["body_font"])
             yy = top_y
             pdf_canvas.drawString(margem_x, yy, f"Paciente: {nome_paciente}")
