@@ -386,6 +386,18 @@ def gerar_receita():
             end_y = yy - 8
             return end_y
 
+        # função utilitária: escreve título e diminui fonte se extrapolar a largura
+        def draw_fit_title(pdf_canvas, x, y, text, base_font_pt, min_font_pt, max_width):
+            from reportlab.pdfbase.pdfmetrics import stringWidth
+            font_pt = base_font_pt
+            tw = stringWidth(text, "Helvetica-Bold", font_pt)
+            while tw > max_width and font_pt > min_font_pt:
+                font_pt -= 1
+                tw = stringWidth(text, "Helvetica-Bold", font_pt)
+            pdf_canvas.setFont("Helvetica-Bold", font_pt)
+            pdf_canvas.drawString(x, y, text)
+            pdf_canvas.setFont("Helvetica-Bold", base_font_pt)  # restaura para quem chamar depois
+
         # corpo no modelo do bloco (PARA AS DUAS VIAS quando controlada)
         def draw_body_controlada_modelo(pdf_canvas, start_y):
             margem_x = LP["margem_x"]
@@ -415,7 +427,7 @@ def gerar_receita():
             pdf_canvas.drawCentredString(cx, y_assin - 12, "Assinatura do Médico / CRM")
             y = y_assin - 28
 
-            # DUAS CAIXAS com padding e sem “trepar”
+            # DUAS CAIXAS
             col_gap = 18
             col_w = (largura_texto - col_gap) / 2.0
             left_x = margem_x
@@ -429,10 +441,13 @@ def gerar_receita():
             pdf_canvas.rect(left_x, top_y - box_h, col_w, box_h)
             pdf_canvas.rect(right_x, top_y - box_h, col_w, box_h)
 
-            # Esquerda: COMPRADOR
+            # largura útil para o título dentro do quadro
+            avail_w = col_w - (pad * 2)
+
+            # Esquerda: COMPRADOR (título com ajuste automático)
             yy = top_y - pad
-            pdf_canvas.setFont("Helvetica-Bold", LP["body_font"])
-            pdf_canvas.drawString(left_x + pad, yy, "IDENTIFICAÇÃO DO COMPRADOR")
+            draw_fit_title(pdf_canvas, left_x + pad, yy, "IDENTIFICAÇÃO DO COMPRADOR",
+                           base_font_pt=LP["body_font"], min_font_pt=LP["small_font"], max_width=avail_w)
             yy -= 18
             pdf_canvas.setFont("Helvetica", LP["small_font"])
             campos_esq = [
@@ -449,10 +464,10 @@ def gerar_receita():
                 _linha(pdf_canvas, left_x + pad + dx, yy - 2, col_w - (pad * 2) - dx)
                 yy -= 18
 
-            # Direita: FORNECEDOR + ASSINATURA DO FARMACÊUTICO
+            # Direita: FORNECEDOR (título com ajuste automático)
             yy2 = top_y - pad
-            pdf_canvas.setFont("Helvetica-Bold", LP["body_font"])
-            pdf_canvas.drawString(right_x + pad, yy2, "IDENTIFICAÇÃO DO FORNECEDOR")
+            draw_fit_title(pdf_canvas, right_x + pad, yy2, "IDENTIFICAÇÃO DO FORNECEDOR",
+                           base_font_pt=LP["body_font"], min_font_pt=LP["small_font"], max_width=avail_w)
             yy2 -= 18
             pdf_canvas.setFont("Helvetica", LP["small_font"])
             campos_dir = [
@@ -467,9 +482,9 @@ def gerar_receita():
                 _linha(pdf_canvas, right_x + pad + dx, yy2 - 2, col_w - (pad * 2) - dx)
                 yy2 -= 18
 
-            # Assinatura do farmacêutico
-            pdf_canvas.setFont("Helvetica-Bold", LP["body_font"])
-            pdf_canvas.drawString(right_x + pad, yy2, "ASSINATURA DO FARMACÊUTICO")
+            # Assinatura do farmacêutico (título com ajuste automático)
+            draw_fit_title(pdf_canvas, right_x + pad, yy2, "ASSINATURA DO FARMACÊUTICO",
+                           base_font_pt=LP["body_font"], min_font_pt=LP["small_font"], max_width=avail_w)
             yy2 -= 18
             pdf_canvas.setFont("Helvetica", LP["small_font"])
             pdf_canvas.drawString(right_x + pad, yy2, "Assinatura:")
@@ -511,11 +526,11 @@ def gerar_receita():
 
         # -------- Geração das páginas
         if receita_controlada:
-            # VIA 1 (idêntica à VIA 2)
+            # VIA 1
             y_start = draw_header(pdf, via_label="Via: 1")
             draw_body_controlada_modelo(pdf, y_start)
 
-            # VIA 2
+            # VIA 2 (idêntica)
             pdf.showPage()
             desenhar_fundo_papel(pdf, papel_timbrado_path, largura, altura)
             y_start = draw_header(pdf, via_label="Via: 2")
@@ -738,4 +753,3 @@ def _get_or_create_paciente(conn, nome, cpf, data_nascimento, sexo):
     )
     conn.commit()
     return cur.lastrowid
-
